@@ -2045,6 +2045,7 @@ void MainWindow::onChangeScreenLayout(QAction* act)
 void MainWindow::onChangeScreenSwap(bool checked)
 {
     windowCfg.SetBool("ScreenSwap", checked);
+    emuInstance->drmLeaseSetSwap(checked);
 
     // Swap between top and bottom screen when displaying one screen.
     int sizing = windowCfg.GetInt("ScreenSizing");
