@@ -212,6 +212,8 @@ void DrmLeaseScreen::setupLayout(bool swapScreens)
     swap = swapScreens;
     const int wantKind = swap ? 0 : 1;
 
+    // Centre the screen on this panel rather than pinning it to an edge.
+    layout.SetPinToHinge(false);
     layout.Setup(mode.hdisplay, mode.vdisplay,
                  screenLayout_Natural,
                  static_cast<ScreenRotation>(screenRotation),
