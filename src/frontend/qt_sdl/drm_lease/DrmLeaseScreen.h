@@ -20,6 +20,7 @@
 #define DRMLEASESCREEN_H
 
 #include <memory>
+#include <mutex>
 #include <string>
 #include <xf86drmMode.h>
 
@@ -90,6 +91,7 @@ private:
     bool waitFlip(int timeoutMs);
     void drainEvents();
     bool touchToScreen(float nx, float ny, bool clamp, int& x, int& y);
+    void setupLayout(bool swapScreens);
 
     EmuInstance* emuInstance;
     std::unique_ptr<DrmLeaseClient> client;
@@ -106,6 +108,9 @@ private:
     drmModeModeInfo mode{};
     int screenRotation = 0;
     bool filter = false;
+    bool integerScale = false;
+    bool swap = false;
+    std::mutex layoutMutex;
 
     ScreenLayout layout;
     float screenMatrix[6]{};
@@ -122,7 +127,7 @@ private:
     bool hasModifierImport = false;
 
     GLuint shaderProgram = 0;
-    GLint transformULoc = -1, screenSizeULoc = -1;
+    GLint transformULoc = -1, screenSizeULoc = -1, layerULoc = -1;
     GLuint vertexBuffer = 0, vertexArray = 0;
     GLuint screenTexture = 0;
 };
