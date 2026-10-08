@@ -74,6 +74,10 @@ public:
                bool swapScreens,
                float topAspect, float botAspect);
 
+    // Single-screen modes pin the screen towards the DS hinge by default.
+    // Set false before Setup() to centre it instead (used by the leased lower panel).
+    void SetPinToHinge(bool pin) { PinToHinge = pin; }
+
     // get a 2x3 transform matrix for each screen and whether it's a top or bottom screen
     // note: the transform assumes an origin point at the top left of the display,
     // X going right and Y going down
@@ -89,6 +93,7 @@ public:
     bool GetTouchCoords(int& x, int& y, bool clamp);
 
 private:
+    bool PinToHinge = true;
     float TopScreenMtx[6];
     float BotScreenMtx[6];
     float HybScreenMtx[6];
