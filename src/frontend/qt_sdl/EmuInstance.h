@@ -135,6 +135,9 @@ public:
     // true when it did.
     bool drmLeaseReap();
     bool drmLeaseActive() { return drmLeaseActiveFlag; }
+    // Swap screens between the main window and the leased panel; any thread.
+    void drmLeaseSetSwap(bool swap) { drmLeaseSwapFlag = swap; }
+    bool drmLeaseSwapWanted() { return drmLeaseSwapFlag; }
 
     // return: empty string = setup OK, non-empty = error message
     QString verifySetup();
@@ -286,6 +289,7 @@ private:
     std::unique_ptr<DrmLeaseScreen> drmLeaseScreen;
 #endif
     std::atomic<bool> drmLeaseActiveFlag{false};
+    std::atomic<bool> drmLeaseSwapFlag{false};
 
     Config::Table globalCfg;
     Config::Table localCfg;

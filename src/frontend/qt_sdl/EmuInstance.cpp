@@ -465,6 +465,8 @@ void EmuInstance::drmLeaseAttach()
     const int rotation = rotationEnv ? atoi(rotationEnv) : -1;
 
     // Auto-selection takes internal panels only; naming a connector opts in to any type.
+    drmLeaseSwapFlag = mainWindow->getWindowConfig().GetBool("ScreenSwap");
+
     auto screen = std::make_unique<DrmLeaseScreen>(this);
     if (!screen->initialize(explicitConnector ? connector : "", rotation,
                             touchDevice ? touchDevice : "auto", !explicitConnector))
