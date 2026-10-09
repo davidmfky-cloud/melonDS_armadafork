@@ -30,6 +30,7 @@
 
 #include "DrmLeaseClient.h"
 #include "DrmLeaseScreen.h"
+#include <mutex>
 #include "DrmLeaseTouch.h"
 #include "EmuInstance.h"
 #include "OpenGLSupport.h"
@@ -80,6 +81,7 @@ void main()
 static const char* kLeaseScreenFS = R"(#version 140
 
 uniform sampler2DArray ScreenTex;
+uniform float uLayer;
 
 smooth in vec2 fTexcoord;
 
@@ -87,7 +89,7 @@ out vec4 oColor;
 
 void main()
 {
-    vec4 pixel = texture(ScreenTex, vec3(fTexcoord, 0.0));
+    vec4 pixel = texture(ScreenTex, vec3(fTexcoord, uLayer));
 
     oColor = vec4(pixel.rgb, 1.0);
 }
@@ -191,25 +193,8 @@ bool DrmLeaseScreen::initialize(const std::string& connectorName, int rotation,
 
     auto& cfg = emuInstance->getMainWindow()->getWindowConfig();
     filter = cfg.GetBool("ScreenFilter");
-    bool screenSwap = cfg.GetBool("ScreenSwap");
-    auto sizingMode = screenSwap ? screenSizing_BotOnly : screenSizing_TopOnly;
-
-    layout.Setup(mode.hdisplay, mode.vdisplay,
-                 screenLayout_Natural,
-                 static_cast<ScreenRotation>(screenRotation),
-                 sizingMode,
-                 0,
-                 cfg.GetBool("IntegerScaling"),
-                 false,
-                 1.0f, 1.0f);
-    float matrices[kMaxScreenTransforms][6];
-    int kinds[kMaxScreenTransforms];
-    int numScreens = layout.GetScreenTransforms(matrices[0], kinds);
-    for (int i = 0; i < numScreens; i++)
-    {
-        if (kinds[i] == 1)
-            memcpy(screenMatrix, matrices[i], sizeof(screenMatrix));
-    }
+    integerScale = cfg.GetBool("IntegerScaling");
+    setupLayout(emuInstance->drmLeaseSwapWanted());
 
     if (!touchDevice.empty())
         touch = std::make_unique<DrmLeaseTouch>(*this, touchDevice);
@@ -217,6 +202,34 @@ bool DrmLeaseScreen::initialize(const std::string& connectorName, int rotation,
     Log(LogLevel::Info, "drm-lease: secondary output ready, %ux%u@%u rotation %d\n",
         mode.hdisplay, mode.vdisplay, mode.vrefresh, screenRotation * 90);
     return true;
+}
+
+// Unswapped: DS bottom screen on this panel. Swapped: DS top screen.
+void DrmLeaseScreen::setupLayout(bool swapScreens)
+{
+    std::lock_guard<std::mutex> lock(layoutMutex);
+
+    swap = swapScreens;
+    const int wantKind = swap ? 0 : 1;
+
+    layout.Setup(mode.hdisplay, mode.vdisplay,
+                 screenLayout_Natural,
+                 static_cast<ScreenRotation>(screenRotation),
+                 swap ? screenSizing_TopOnly : screenSizing_BotOnly,
+                 0,
+                 integerScale,
+                 false,
+                 1.0f, 1.0f);
+
+    float matrices[kMaxScreenTransforms][6];
+    int kinds[kMaxScreenTransforms];
+    int numScreens = layout.GetScreenTransforms(matrices[0], kinds);
+    memset(screenMatrix, 0, sizeof(screenMatrix));
+    for (int i = 0; i < numScreens; i++)
+    {
+        if (kinds[i] == wantKind)
+            memcpy(screenMatrix, matrices[i], sizeof(screenMatrix));
+    }
 }
 
 bool DrmLeaseScreen::findProperty(u32 objectId, u32 objectType, const char* name, u32& propId)
@@ -566,6 +579,7 @@ bool DrmLeaseScreen::initOpenGL()
     glUniform1i(glGetUniformLocation(shaderProgram, "ScreenTex"), 0);
     screenSizeULoc = glGetUniformLocation(shaderProgram, "uScreenSize");
     transformULoc = glGetUniformLocation(shaderProgram, "uTransform");
+    layerULoc = glGetUniformLocation(shaderProgram, "uLayer");
 
     const float vertices[] =
     {
@@ -699,6 +713,12 @@ void DrmLeaseScreen::drawScreen()
     if (!waitFlip(2))
         return;
 
+    // Swap toggled from the menu/hotkey since the last frame.
+    const bool wantSwap = emuInstance->drmLeaseSwapWanted();
+    if (wantSwap != swap)
+        setupLayout(wantSwap);
+    const int layer = swap ? 0 : 1;
+
     Buffer& buf = buffers[nextBuffer];
     const int w = mode.hdisplay;
     const int h = mode.vdisplay;
@@ -719,14 +739,15 @@ void DrmLeaseScreen::drawScreen()
 
         glUseProgram(shaderProgram);
         glUniform2f(screenSizeULoc, w, h);
+        glUniform1f(layerULoc, (float)layer);
 
         void* topbuf; void* bottombuf;
         if (nds->GPU.GetFramebuffers(&topbuf, &bottombuf))
         {
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D_ARRAY, screenTexture);
-            glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 1, 256, 192, 1, GL_BGRA,
-                            GL_UNSIGNED_BYTE, bottombuf);
+            glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, layer, 256, 192, 1, GL_BGRA,
+                            GL_UNSIGNED_BYTE, swap ? topbuf : bottombuf);
         }
         else
         {
@@ -767,6 +788,8 @@ bool DrmLeaseScreen::touchToScreen(float nx, float ny, bool clamp, int& x, int& 
 {
     x = static_cast<int>(nx * mode.hdisplay);
     y = static_cast<int>(ny * mode.vdisplay);
+    // Rejects touches while this panel shows the (non-touch) top screen.
+    std::lock_guard<std::mutex> lock(layoutMutex);
     return layout.GetTouchCoords(x, y, clamp);
 }
 
